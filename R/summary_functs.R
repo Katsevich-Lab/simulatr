@@ -215,3 +215,15 @@ fdp = function(output, ground_truth){
 power = function(output, ground_truth){
   length(intersect(output$nonnulls, ground_truth$nonnulls))/max(1, length(ground_truth$nonnulls))
 }
+
+#' Evaluate whether at least k false discoveries were made on a discovery set
+#'
+#' @param output The output of a method, an object that must contain the field nonnulls
+#' @param ground_truth The ground truth, an object that must contain the field nonnulls
+#' @param k The false discovery tolerance
+#'
+#' @return Whether the number of false discoveries exceeds k
+#' @export
+fwe = function(output, ground_truth, k = 1){
+  length(setdiff(output$nonnulls, ground_truth$nonnulls)) >= k
+}
