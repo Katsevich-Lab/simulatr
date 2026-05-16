@@ -8,3 +8,5 @@
 ^vignettes/intro-to-simulatr_cache$
 ^vignettes/intro-to-simulatr_files$
 ^example_code
+^\.github$
+^CONTRIBUTING\.md$
