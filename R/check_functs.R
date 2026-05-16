@@ -2,9 +2,18 @@
 #'
 #' Checks a simulatr specifier object for correctness.
 #'
+#' Each replicate uses a per-replicate seed derived as
+#' `seed + run_id` (where `run_id` is the replicate index within the row).
+#' This makes runs reproducible while ensuring randomized methods
+#' (e.g., bootstraps, glmnet cross-validation) vary across replicates.
+#'
+#' Warnings emitted by the data generator or methods are captured into
+#' the per-row result list (see `warnings` field) and printed to the
+#' console, but they do not abort the run. Only errors abort.
+#'
 #' @param simulatr_spec a simulatr_specifier object
 #' @param B_in (default determined by simulatr_spec) number of resamples to use
-#' @param return_data (default false) whether to return the data 
+#' @param return_data (default false) whether to return the data
 #' @param parallel (default true) parallelize execution?
 #'
 #' @return if no errors, the list of results; if errors occur, the ordered list of arguments passed to the function in which the error occurred.
@@ -53,30 +62,39 @@ check_simulatr_specifier_object <- function(simulatr_spec, B_in = NULL, return_d
     })
     # obtain B; if B_in has been passed, use that instead
     B <- get_param_from_simulatr_spec(simulatr_spec, row_idx, "B")
-    # generate the data, while clocking the time and looking for errors
-    tryCatch({
-      invisible(gc(reset = TRUE)) # garbage collect prior to generating data
-      time <- suppressMessages(system.time(
-        if (data_generator@loop) {
-          data_list <- lapply(
-            1:B,
-            function(b) {
-              R.utils::withSeed(do.call(data_generator@f, ordered_args),
-                                seed = seed + b)
-            }
-          )
-        } else {
-          data_list <- R.utils::withSeed(do.call(data_generator@f, ordered_args), seed = seed)
-        })[["elapsed"]]/B)
-      bytes <- get_memory_used()/B
-      return(list(error = FALSE, warning = FALSE, time = time,
-                  bytes = bytes, data_list = data_list))
-      # handle errors and warnings
-    }, error = function(e) {
-      return(list(error = TRUE, warning = FALSE, ordered_args = ordered_args, msg = e))
-    }, warning = function(w) {
-      return(list(error = FALSE, warning = TRUE, ordered_args = ordered_args, msg = w))
-    })
+    # generate the data, while clocking the time and looking for errors.
+    # Warnings are captured via withCallingHandlers so the protected expression
+    # is not aborted on the first benign warning (e.g., convergence messages).
+    captured_warnings <- list()
+    tryCatch(
+      withCallingHandlers({
+        invisible(gc(reset = TRUE)) # garbage collect prior to generating data
+        time <- suppressMessages(system.time(
+          if (data_generator@loop) {
+            data_list <- lapply(
+              1:B,
+              function(b) {
+                R.utils::withSeed(do.call(data_generator@f, ordered_args),
+                                  seed = seed + b)
+              }
+            )
+          } else {
+            data_list <- R.utils::withSeed(do.call(data_generator@f, ordered_args), seed = seed)
+          })[["elapsed"]]/B)
+        bytes <- get_memory_used()/B
+        list(error = FALSE, warning = length(captured_warnings) > 0,
+             time = time, bytes = bytes, data_list = data_list,
+             msg = if (length(captured_warnings)) captured_warnings[[1]] else NULL,
+             warnings = captured_warnings)
+      },
+      warning = function(w) {
+        captured_warnings[[length(captured_warnings) + 1L]] <<- w
+        invokeRestart("muffleWarning")
+      }),
+      error = function(e) {
+        list(error = TRUE, warning = FALSE, ordered_args = ordered_args, msg = e)
+      }
+    )
   })
   query_funct <- check_funct_helper(data_generation_out, "data generator")
   if (query_funct$stop_funct) return(query_funct$ret_val)
@@ -98,44 +116,55 @@ check_simulatr_specifier_object <- function(simulatr_spec, B_in = NULL, return_d
       library(pack, character.only = TRUE)))
     # run the method across all parameter settings
     method_out <- my_lapply(seq(1, n_param_settings), function(row_idx) {
-      tryCatch({
-        # obtain arguments
-        if (identical(method_object@arg_names, NA_character_)) {
-          ordered_args <- list(NA)
-        } else {
-          ordered_args <- c(list(NA), lapply(method_object@arg_names, function(curr_arg) {
-            get_param_from_simulatr_spec(simulatr_spec, row_idx, curr_arg)}))
+      captured_warnings <- list()
+      # obtain arguments
+      if (identical(method_object@arg_names, NA_character_)) {
+        ordered_args <- list(NA)
+      } else {
+        ordered_args <- c(list(NA), lapply(method_object@arg_names, function(curr_arg) {
+          get_param_from_simulatr_spec(simulatr_spec, row_idx, curr_arg)}))
+      }
+      tryCatch(
+        withCallingHandlers({
+          # get the current data list
+          data_list <- data_lists[[row_idx]]
+          # get B
+          B <- length(data_list)
+          # Per-replicate seeds use `seed + run_id` so randomized methods
+          # (bootstraps, glmnet's random folds, etc.) actually vary across
+          # replicates. A previous bug reused `seed` for every rep.
+          invisible(gc(reset = TRUE)) # garbage collect prior to generating data
+          time <- suppressMessages(system.time(if (method_object@loop) {
+            result_list <- vector(mode = "list", length = length(data_list))
+            for (i in seq(1, length(data_list))) {
+              ordered_args[[1]] <- data_list[[i]]
+              out <- dplyr::tibble(
+                output = list(R.utils::withSeed(do.call(method_object@f, ordered_args),
+                                                seed = seed + i)),
+                run_id = i
+              )
+              result_list[[i]] <- out
+            }
+            result_df <- do.call(rbind, result_list)
+          } else {
+            ordered_args[[1]] <- data_list
+            result_df <- do.call(method_object@f, ordered_args)
+          })[["elapsed"]]/B)
+          bytes <- get_memory_used()/B
+          result_df$grid_id <- row_idx
+          list(error = FALSE, warning = length(captured_warnings) > 0,
+               time = time, bytes = bytes, result_df = result_df,
+               msg = if (length(captured_warnings)) captured_warnings[[1]] else NULL,
+               warnings = captured_warnings)
+        },
+        warning = function(w) {
+          captured_warnings[[length(captured_warnings) + 1L]] <<- w
+          invokeRestart("muffleWarning")
+        }),
+        error = function(e) {
+          list(error = TRUE, warning = FALSE, ordered_args = ordered_args, msg = e)
         }
-        # get the current data list
-        data_list <- data_lists[[row_idx]]
-        # get B
-        B <- length(data_list)
-        # run method, while clocking time and looking for errors
-        invisible(gc(reset = TRUE)) # garbage collect prior to generating data
-        time <- suppressMessages(system.time(if (method_object@loop) {
-          result_list <- vector(mode = "list", length = length(data_list))
-          for (i in seq(1, length(data_list))) {
-            ordered_args[[1]] <- data_list[[i]]
-            out <- dplyr::tibble(
-              output = list(R.utils::withSeed(do.call(method_object@f, ordered_args), 
-                                              seed = seed)),
-              run_id = i
-            )
-            result_list[[i]] <- out
-          }
-          result_df <- do.call(rbind, result_list)
-        } else {
-          ordered_args[[1]] <- data_list
-          result_df <- do.call(method_object@f, ordered_args)
-        })[["elapsed"]]/B)
-        bytes <- get_memory_used()/B
-        result_df$grid_id <- row_idx
-        return(list(error = FALSE, warning = FALSE, time = time, bytes = bytes, result_df = result_df))
-      }, error = function(e) {
-        return(list(error = TRUE, warning = FALSE, ordered_args = ordered_args, msg = e))
-      }, warning = function(w) {
-        return(list(error = FALSE, warning = TRUE, ordered_args = ordered_args, msg = w))
-      })
+      )
     })
     query_funct <- check_funct_helper(method_out, method_name)
     if (query_funct$stop_funct) return(query_funct$ret_val)
@@ -212,20 +241,15 @@ check_funct_helper <- function(out_list, funct_name) {
     }
     cat("\n")
   }
-  # define default output
+  # Report warnings (non-fatal) and errors (fatal). Warnings used to abort the
+  # whole run; they no longer do — they are captured in `warnings` on each
+  # row's return list and surfaced here for visibility only.
+  if (any(warnings)) f(warnings, funct_name, "warning")
   ret <- list(stop_funct = FALSE)
-  # check errors OR warnings
-  if (any(errors) | any(warnings)) {
-    if (any(errors)) {
-      f(errors, funct_name, "error")
-      msg_type <- "error"
-      ret_val <- lapply(out_list[errors], function(i) i$ordered_args)
-    } else {
-      f(warnings, funct_name, "warning")
-      msg_type <- "warning"
-      ret_val <- lapply(out_list[warnings], function(i) i$ordered_args)
-    }
-    cat(paste0("Aborting and returning list of arguments corresponding to rows that produced ", msg_type,"s for function \`", funct_name, "\`.\n"))
+  if (any(errors)) {
+    f(errors, funct_name, "error")
+    ret_val <- lapply(out_list[errors], function(i) i$ordered_args)
+    cat(paste0("Aborting and returning list of arguments corresponding to rows that produced errors for function \`", funct_name, "\`.\n"))
     if (length(ret_val) == 1) ret_val <- ret_val[[1]]
     ret <- list(stop_funct = TRUE, ret_val = ret_val)
   }
