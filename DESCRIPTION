@@ -26,12 +26,15 @@ Imports:
     tidyr,
     rlang,
     R.utils
-Suggests: 
+Suggests:
     future,
     future.apply,
     cowplot,
     ggplot2,
     knitr,
     rmarkdown,
-    glmnet
+    glmnet,
+    testthat (>= 3.0.0),
+    covr
 VignetteBuilder: knitr
+Config/testthat/edition: 3
