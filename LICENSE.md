@@ -1,6 +1,6 @@
 # MIT License
 
-Copyright (c) 2021 simulatr authors
+Copyright (c) 2026 Katsevich Lab
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

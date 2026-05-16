@@ -3,6 +3,11 @@
 
 # `simulatr`: Portable and scalable numerical simulations
 
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/Katsevich-Lab/simulatr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/Katsevich-Lab/simulatr/actions/workflows/R-CMD-check.yaml)
+[![Codecov test coverage](https://codecov.io/gh/Katsevich-Lab/simulatr/graph/badge.svg)](https://app.codecov.io/gh/Katsevich-Lab/simulatr)
+<!-- badges: end -->
+
 <img src="man/figures/simulatr-schematic.png" width="100%" style="display: block; margin: auto;" />
 
 Simulation studies play a crucial role in the development and assessment
