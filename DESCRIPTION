@@ -1,7 +1,7 @@
 Package: simulatr
 Title: Design Portable and Scalable Simulation Studies
-Version: 0.0.0.9001
-Authors@R: 
+Version: 1.0.0
+Authors@R:
     c(person(given = "Timothy",
        family = "Barry",
        role = c("aut", "cre"),
@@ -11,6 +11,8 @@ Authors@R:
        family = "Katsevich",
        role = c("aut", "ths"),
        email = "ekatsevi@wharton.upenn.edu"))
+URL: https://katsevich-lab.github.io/simulatr/, https://github.com/Katsevich-Lab/simulatr
+BugReports: https://github.com/Katsevich-Lab/simulatr/issues
 Description: Simulation studies play a crucial role in the development and assessment of statistical methods. However, writing portable and scalable simulation code can be challenging. Simulatr decouples the *specification* of a simulation from the *execution* of a simulation, enabling users to develop a simulation study on their laptop and seamlessly run the simulation at-scale on a distributed computing platform. Supported platforms include high-performance computing clusters and cloud computing services (e.g., Microsoft Azure, Amazon Web Services, etc.).
 License: MIT + file LICENSE
 Encoding: UTF-8
@@ -28,6 +30,7 @@ Imports:
 Suggests:
     bench,
     cowplot,
+    digest,
     ggplot2,
     knitr,
     rmarkdown,

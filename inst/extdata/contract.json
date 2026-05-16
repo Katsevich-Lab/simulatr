@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "package": "simulatr",
+  "package_version": "1.0.0",
+  "description": "On-disk contract between the simulatr R package and the simulatr-pipeline Nextflow workflow. The pipeline reads this file from system.file('extdata', 'contract.json', package = 'simulatr') at workflow start and asserts that schema_version matches the version it was built against.",
+  "shard_layout": {
+    "draws":   "draws/<model>/<grid_id>/<chunk_id>.parquet",
+    "outputs": "outputs/<method>/<grid_id>/<chunk_id>.parquet",
+    "evals":   "evals/<metric>/<grid_id>.parquet",
+    "memory":  "memory/<phase>/<grid_id>_<chunk_id>.tsv",
+    "errors":  "errors/<phase>/<grid_id>_<chunk_id>.json"
+  },
+  "schemas": {
+    "results": {
+      "grid_id":  "integer",
+      "method":   "character",
+      "chunk_id": "integer",
+      "run_id":   "integer",
+      "output":   "list"
+    },
+    "evals": {
+      "grid_id": "integer",
+      "method":  "character",
+      "metric":  "character",
+      "run_id":  "integer",
+      "value":   "double"
+    },
+    "summary": {
+      "grid_id": "integer",
+      "method":  "character",
+      "metric":  "character",
+      "mean":    "double",
+      "se":      "double",
+      "n":       "integer"
+    },
+    "memory": {
+      "grid_id": "integer",
+      "method":  "character",
+      "kind":    "character",
+      "phase":   "character",
+      "metric":  "character",
+      "value":   "double"
+    },
+    "timing": {
+      "grid_id": "integer",
+      "method":  "character",
+      "phase":   "character",
+      "seconds": "double"
+    },
+    "errors": {
+      "phase":     "character",
+      "grid_id":   "integer",
+      "chunk_id":  "integer",
+      "run_id":    "integer",
+      "type":      "character",
+      "message":   "character",
+      "traceback": "character"
+    }
+  },
+  "rng_protocol": {
+    "description": "Each replicate's seed is study@fixed_parameters$seed + run_id. Generators and methods consume the same seed within a replicate; reordering parameter_grid does not perturb seeds.",
+    "max_reps_per_chunk": 1000000
+  }
+}
