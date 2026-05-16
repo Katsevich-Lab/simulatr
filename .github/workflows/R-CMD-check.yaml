@@ -1,5 +1,4 @@
-# R CMD check on Ubuntu R-release. Additional platforms / R-devel will land in
-# a later phase per the redesign roadmap.
+# R CMD check across an OS × R-version matrix.
 on:
   push:
     branches: [main, master]
@@ -10,10 +9,23 @@ name: R-CMD-check
 
 jobs:
   R-CMD-check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.config.os }}
+
+    name: ${{ matrix.config.os }} (${{ matrix.config.r }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: ubuntu-latest,  r: 'release'}
+          - {os: ubuntu-latest,  r: 'devel'}
+          - {os: macos-latest,   r: 'release'}
+          - {os: windows-latest, r: 'release'}
+
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_KEEP_PKG_SOURCE: yes
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +33,7 @@ jobs:
 
       - uses: r-lib/actions/setup-r@v2
         with:
-          r-version: release
+          r-version: ${{ matrix.config.r }}
           use-public-rspm: true
 
       - uses: r-lib/actions/setup-r-dependencies@v2

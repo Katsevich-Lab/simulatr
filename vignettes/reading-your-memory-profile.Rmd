@@ -1,0 +1,116 @@
+---
+title: "Reading your memory profile"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Reading your memory profile}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+A simulation that runs locally on `B = 2` may blow up at `B = 1000`
+because *one* `(method, grid_row)` allocates more memory than your
+cluster nodes have. `simulatr` and its companion pipeline address this
+with a three-layer benchmark.
+
+```{r setup, message = FALSE}
+library(simulatr)
+```
+
+# Layer 1: per-replicate R-heap allocation (the package)
+
+`simulatr_benchmark()` runs one warm-up replicate, then `n_measure`
+timed replicates per `(method, grid_row)` and returns decomposed
+allocation numbers via `bench::mark`:
+
+```{r, eval = FALSE}
+bench <- simulatr_benchmark(study, row_idx = 1, n_warmup = 1, n_measure = 3)
+bench
+#> # A tibble: 3 × 4
+#>   method phase    gb_per_rep   sec_per_rep
+#>   <chr>  <chr>         <dbl>        <dbl>
+#> 1 ols    generate    1.2e-04        2e-04
+#> 2 ols    run         8.0e-05        1e-04
+#> 3 ols    evaluate    2.0e-06        1e-05
+```
+
+Three numbers per phase. They are **R-heap only** — they do not
+include Rcpp arenas, BLAS scratch pads, or any external library's
+memory. So `bench` numbers are accurate for budgeting *within* the R
+heap (e.g., choosing how many replicates fit in `max_gb`) but they can
+materially under-count for methods that delegate to compiled code.
+
+# Layer 2: per-job peak resident set size (the pipeline)
+
+The pipeline collects two more sources during production runs:
+
+* **Slurm:** `process.afterScript = "sacct -j ${SLURM_JOB_ID} \
+  --format MaxRSS,MaxVMSize > .command.memory.tsv"`. Granular,
+  reliable, free.
+* **Non-Slurm (laptop, Docker):** `bin/rss_sampler.sh` polls
+  `ps -o rss=` once per second and emits the max on exit.
+
+Both write a `.command.memory.tsv` per task, which the `COLLECT`
+subworkflow concatenates into `memory.parquet`:
+
+```{r, eval = FALSE}
+mem <- arrow::read_parquet("results/memory.parquet")
+head(mem)
+#> # A tibble: 6 × 6
+#>   grid_id method kind  phase    metric     value
+#>     <int> <chr>  <chr> <chr>    <chr>      <dbl>
+#> 1       1 ols    bench generate gb_per_rep  1.2e-04
+#> 2       1 ols    bench run      gb_per_rep  8.0e-05
+#> 3       1 ols    sacct run      max_rss_gb 0.21
+#> 4       2 ols    bench generate gb_per_rep  2.4e-04
+#> 5       2 ols    sacct run      max_rss_gb 0.34
+#> 6       3 lasso  sacct run      max_rss_gb 1.42
+```
+
+# Diffing Layer 1 vs Layer 2
+
+```{r, eval = FALSE}
+mem |>
+  dplyr::filter(metric %in% c("gb_per_rep", "max_rss_gb")) |>
+  tidyr::pivot_wider(names_from = c(kind, metric), values_from = value) |>
+  dplyr::mutate(delta_gb = sacct_max_rss_gb - bench_gb_per_rep)
+```
+
+A small `delta` (≤ 100 MB) is the R session itself plus a constant
+overhead. A large `delta` is a smoking gun:
+
+* If the method delegates to Rcpp, the gap is the Rcpp arena.
+* If the method uses BLAS-heavy operations, BLAS scratch lands here.
+* If the method calls into Python via `reticulate`, all of Python's
+  memory lives outside R's view.
+
+When the cluster OOM-kills a method but `simulatr_benchmark()` says it
+should fit, this diff is the first place to look.
+
+# Layer 3: profiling a specific blowup (opt-in)
+
+For users who want to know *which line* allocated, run
+`Rprofmem()` or `bench::mark(profile_memory = TRUE)` directly inside
+the offending method body. `simulatr` does not collect this in the
+default pipeline because the overhead is large and the output is
+high-volume; treat it as a debugging tool.
+
+# Implications for `max_gb`
+
+When you set `params.max_gb` in the pipeline config, you are
+constraining Layer 2, not Layer 1. A safe default:
+
+```
+max_gb = ceiling(2 × (R session + max(bench_gb_per_rep) + headroom))
+```
+
+The benchmarking phase reports `max_reps_gb` and `max_reps_hours`
+(rows of `benchmarking_results.rds`); if either drops below 1, the
+pipeline pre-stops with a message saying which `(method, grid_row)`
+needs a larger `max_gb`.

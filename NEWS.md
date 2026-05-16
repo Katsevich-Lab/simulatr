@@ -1,6 +1,38 @@
-# simulatr (development version)
+# simulatr 1.0.0
 
-## Phase 2 — Architecture
+## Phase 3 — Pipeline contract, vignettes, JoSS
+
+* New on-disk **pipeline contract** at
+  `inst/extdata/contract.json` documenting the shard layout, result
+  schemas (`results`, `evals`, `summary`, `memory`, `timing`,
+  `errors`), and RNG protocol shared with `simulatr-pipeline`.
+  `contract_path()`, `contract_version()`, and `contract_hash()`
+  expose it from R; the pipeline asserts version compatibility at
+  workflow start.
+* New `simulatr_session_info()` returns `sessionInfo()` augmented
+  with the contract version and SHA-256 of `contract.json`. Embed in
+  result artifacts to make a run bit-for-bit reproducible.
+* Five new vignettes replace the legacy ones:
+  *Getting started* (laptop walk-through with `simulatr_check()`),
+  *Writing a method* (typed constructors, batched generation, RNG
+  protocol), *Running on a cluster* (Nextflow pipeline + Slurm),
+  *Reproducibility & seeding* (`simulatr_session_info()`, container,
+  `renv.lock`), *Reading your memory profile* (Layer-1 vs Layer-2
+  numbers).
+* pkgdown site published at <https://katsevich-lab.github.io/simulatr/>;
+  `_pkgdown.yml` updated with the five-vignette navbar; new
+  `.github/workflows/pkgdown.yaml`.
+* New `Dockerfile` + `.github/workflows/docker.yaml` build and push
+  `ghcr.io/katsevich-lab/simulatr:<version>` on every release tag;
+  `simulatr-pipeline` references the image in its docker profile.
+* `R-CMD-check` GitHub Actions workflow now spans
+  `{ubuntu-release, ubuntu-devel, macos-release, windows-release}`.
+* `paper.md` + `paper.bib` drafted at the repo root for JoSS
+  submission. Statement of Need contrasts with `simulator`,
+  `SimDesign`, `simhelpers`, `parSim`.
+* `Version: 1.0.0` (from `0.0.0.9001`); local `v1.0.0` tag.
+
+# simulatr 0.0.0.9001 — Phase 2 Architecture (pre-release)
 
 * **BREAKING:** `simulatr_function` is removed in favor of three typed
   S4 component constructors — `simulatr_model()`, `simulatr_method()`,
@@ -38,7 +70,7 @@
   different draws, reordering `parameter_grid` does not perturb a row's
   seed — have explicit tests.
 
-## Phase 1 — Foundation
+# simulatr 0.0.0.9000 — Phase 1 Foundation (pre-release)
 
 * License clarification: MIT, with `Katsevich Lab` as the copyright
   holder for the current development line (2026). DESCRIPTION already

@@ -13,6 +13,15 @@ its execution and provides four building blocks — \code{\link[=simulatr_model]
 with three verbs — \code{\link[=simulatr_generate]{simulatr_generate()}}, \code{\link[=simulatr_run]{simulatr_run()}},
 \code{\link[=simulatr_evaluate]{simulatr_evaluate()}} — and a convenience wrapper \code{\link[=simulatr_check]{simulatr_check()}}.
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://katsevich-lab.github.io/simulatr/}
+  \item \url{https://github.com/Katsevich-Lab/simulatr}
+  \item Report bugs at \url{https://github.com/Katsevich-Lab/simulatr/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Timothy Barry \email{tbarry2@andrew.cmu.edu} (\href{https://orcid.org/0000-0002-4356-627X}{ORCID})
 
