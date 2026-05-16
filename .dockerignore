@@ -1,0 +1,9 @@
+.git
+.github
+.Rproj.user
+docs
+example_code
+*.Rproj
+.gitignore
+.dockerignore
+Dockerfile
