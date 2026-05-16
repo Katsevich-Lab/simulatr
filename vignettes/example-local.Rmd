@@ -128,12 +128,13 @@ summary
 ```
 
 ```{r, fig.align='center', fig.width=6, fig.height=4}
+grid_with_id <- parameter_grid |>
+  dplyr::mutate(grid_id = dplyr::row_number()) |>
+  dplyr::select(grid_id, sample_size = n)
+
 summary |>
-  dplyr::inner_join(
-    parameter_grid |> dplyr::mutate(grid_id = dplyr::row_number()),
-    by = "grid_id"
-  ) |>
-  ggplot(aes(x = n, y = mean,
+  dplyr::inner_join(grid_with_id, by = "grid_id") |>
+  ggplot(aes(x = sample_size, y = mean,
              ymin = mean - 2 * se, ymax = mean + 2 * se,
              color = method)) +
   geom_point() +

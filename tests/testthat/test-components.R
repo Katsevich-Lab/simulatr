@@ -56,6 +56,58 @@ test_that("simulatr_study requires B and seed, plus arg-name coverage", {
   )
 })
 
+test_that("simulatr_study rejects a model with unresolvable formals", {
+  bad_model <- simulatr_model(name = "g", generate = function(unknown_param) 0)
+  meth <- simulatr_method(name = "id", run = function(data) data)
+  expect_error(
+    simulatr_study(
+      parameter_grid = data.frame(beta_0 = 1),
+      fixed_parameters = list(B = 1, seed = 1),
+      models = list(g = bad_model),
+      methods = list(id = meth)
+    ),
+    "unknown_param"
+  )
+})
+
+test_that("simulatr_study rejects non-metric entries in metrics", {
+  m <- simulatr_model(name = "g", generate = function(beta_0) data.frame(x = beta_0))
+  meth <- simulatr_method(name = "id", run = function(data) data)
+  expect_error(
+    simulatr_study(
+      parameter_grid = data.frame(beta_0 = 1),
+      fixed_parameters = list(B = 1, seed = 1),
+      models = list(g = m),
+      methods = list(id = meth),
+      metrics = list(bad = "not a metric")
+    ),
+    "simulatr_metric"
+  )
+})
+
+test_that("simulatr_study requires non-empty models and methods", {
+  m <- simulatr_model(name = "g", generate = function(beta_0) data.frame(x = beta_0))
+  meth <- simulatr_method(name = "id", run = function(data) data)
+  expect_error(
+    simulatr_study(
+      parameter_grid = data.frame(beta_0 = 1),
+      fixed_parameters = list(B = 1, seed = 1),
+      models = list(),
+      methods = list(id = meth)
+    ),
+    "models"
+  )
+  expect_error(
+    simulatr_study(
+      parameter_grid = data.frame(beta_0 = 1),
+      fixed_parameters = list(B = 1, seed = 1),
+      models = list(g = m),
+      methods = list()
+    ),
+    "methods"
+  )
+})
+
 test_that("simulatr_study accepts a valid spec", {
   m <- simulatr_model(name = "g", generate = function(beta_0, n) data.frame(x = stats::rnorm(n) + beta_0))
   meth <- simulatr_method(name = "id", run = function(data) list(x = data$x))
