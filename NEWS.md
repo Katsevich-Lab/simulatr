@@ -32,9 +32,7 @@
   `SimDesign`, `simhelpers`, `parSim`.
 * `Version: 1.0.0` (from `0.0.0.9001`); local `v1.0.0` tag.
 
-# simulatr (development version)
-
-## Phase 2 — Architecture
+# simulatr 0.0.0.9001 — Phase 2 Architecture (pre-release)
 
 * **BREAKING:** `simulatr_function` is removed in favor of three typed
   S4 component constructors — `simulatr_model()`, `simulatr_method()`,
@@ -72,7 +70,7 @@
   different draws, reordering `parameter_grid` does not perturb a row's
   seed — have explicit tests.
 
-## Phase 1 — Foundation
+# simulatr 0.0.0.9000 — Phase 1 Foundation (pre-release)
 
 * License clarification: MIT, with `Katsevich Lab` as the copyright
   holder for the current development line (2026). DESCRIPTION already
