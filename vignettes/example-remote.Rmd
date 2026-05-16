@@ -18,16 +18,16 @@ knitr::opts_chunk$set(
 
 If you have access to a distributed computing platform (e.g. a computer cluster provided by your university or a cloud computing service like AWS), then you can easily move your `simulatr` simulation from your laptop to this platform.
 
-# 1-3. Create a working `simulatr` specifier object
+# 1-3. Create a working `simulatr_study` object
 
-The *same* `simulatr` specifier object you [created on your laptop](https://katsevich-lab.github.io/simulatr/articles/example-local.html) can be used on your distributed computing platform! Please read the "`simulatr` on your laptop" article (linked above) if you have not done so already. Once you have a `simulatr` specifier object you are happy with, save it to disk using a command like the following:
+The *same* `simulatr_study` object you [created on your laptop](https://katsevich-lab.github.io/simulatr/articles/example-local.html) can be used on your distributed computing platform. Please read the "`simulatr` on your laptop" article (linked above) if you have not done so already. Once you have a `simulatr_study` object you are happy with, save it to disk:
 ```{r}
-saveRDS(object = simulatr_spec, file = simulatr_spec_filename)
+saveRDS(object = study, file = study_filename)
 ```
 
 # 4. Run the simulation on your distributed computing platform
 
-Running `simulatr` on a distributed computing platform is facilitated by a [Nextflow](https://nextflow.io) pipeline, [`Katsevich-Lab/simulatr-pipeline`](https://github.com/Katsevich-Lab/simulatr-pipeline). This pipeline takes as inputs the `simulatr` specifier file created in steps 1-3, as well as the desired limits on the the memory and time usage of each individual process. It then adaptively parallelizes the simulation tasks accordingly, splitting the replicates for each combination of method and parameter setting into one or more processes. 
+Running `simulatr` on a distributed computing platform is facilitated by a [Nextflow](https://nextflow.io) pipeline, [`Katsevich-Lab/simulatr-pipeline`](https://github.com/Katsevich-Lab/simulatr-pipeline). This pipeline takes as inputs the `simulatr_study` file created in steps 1-3, as well as the desired limits on the the memory and time usage of each individual process. It then adaptively parallelizes the simulation tasks accordingly, splitting the replicates for each combination of method and parameter setting into one or more processes. 
 
 Below are instructions for running this pipeline on your distributed computing platform.
 
@@ -60,7 +60,7 @@ nextflow run katsevich-lab/simulatr-pipeline \
 
 The command-line arguments are described below. Note that only the first (`simulatr_specifier_fp`) is required; the rest have sensible defaults, included in the following descriptions.
 
-- `simulatr_specifier_fp`: (Required) The path to the `simulatr` specifier object saved at the end of steps 1-3 above.
+- `simulatr_specifier_fp`: (Required) The path to the `simulatr_study` object saved at the end of steps 1-3 above. *(Pipeline integration with the new study class is part of Phase 3 of the redesign; the current pipeline still expects the legacy class.)*
 - `result_dir`: (Optional) The directory in which to write the output file. Defaults to the current working directory. 
 - `result_file_name`: (Optional) The name of the output file. Defaults to `"simulatr_result.rds"`.
 - `B_check`: (Optional) The number of initial simulation replicates to run for each combination of method and parameter setting in order to benchmark the memory and time required for adaptive parallelization. Defaults to 5.
@@ -68,7 +68,7 @@ The command-line arguments are described below. Note that only the first (`simul
 - `max_gb`: (Optional) The maximum number of GB each process has available. This number is used in the adaptive parallelization scheme. Defaults to 8. 
 - `max_hours`: (Optional) The maximum number of hours each process can run for. This number is used in the adaptive parallelization scheme. Defaults to 4.
 
-Upon successful completion of the pipeline, the results will be written to disk in RDS format at the location requested. The results are in the same format as returned by `check_simulatr_specifier_object()`; see ["simulatr on your laptop"](https://katsevich-lab.github.io/simulatr/articles/example-local.html).
+Upon successful completion of the pipeline, the results will be written to disk in RDS format at the location requested. The results are in the same shape as returned by `simulatr_check()`; see ["simulatr on your laptop"](https://katsevich-lab.github.io/simulatr/articles/example-local.html).
 
 # 5. Summarize and/or visualize the results
 

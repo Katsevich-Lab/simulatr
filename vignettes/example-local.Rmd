@@ -16,7 +16,7 @@ knitr::opts_chunk$set(
 )
 ```
 
-Here we walk through a simple example of building a `simulatr` specifier object, checking and running the simulation locally, and visualizing the results. We consider estimating the coefficients in a linear regression model via ordinary least squares and lasso, varying the number of samples. 
+Here we walk through a simple example: estimating coefficients in a linear regression model via ordinary least squares and lasso, varying the sample size.
 
 ```{r setup, message = FALSE}
 library(simulatr)
@@ -25,149 +25,122 @@ library(ggplot2)
 
 # 1. Assemble simulation components
 
-- `parameter_grid`. The problem parameters will be the sample size `n`, the dimension `p`, the number of nonzero coefficients `s`, and the value of each nonzero coefficient `beta_val`. In this simulation, we will only vary `n`. We could have therefore put the remainder of the parameters in `fixed_parameters`, but we avoid this to have all problem parameters in `parameter_grid`.
+- `parameter_grid`. Problem parameters are sample size `n`, dimension `p`, number of nonzero coefficients `s`, and value of each nonzero coefficient `beta_val`.
     ```{r}
     parameter_grid <- data.frame(
-      n = c(25, 50, 75, 100),      # sample size
-      p = 15,                      # dimension
-      s = 5,                       # number of nonzero coefficients
-      beta_val = 3                 # value of nonzero coefficients
+      n = c(25, 50, 75, 100),
+      p = 15,
+      s = 5,
+      beta_val = 3
     )
     ```
-Next, we want to create the ground truth inferential targets based on the problem parameters. In this case, the inferential target is the coefficient vector. We define a function `get_ground_truth()` that takes as input three of the problem parameters and outputs the coefficient vector:
+The inferential target is the coefficient vector. Define `get_ground_truth()` and attach it to the grid:
     ```{r}
-    get_ground_truth <- function(p, s, beta_val){
+    get_ground_truth <- function(p, s, beta_val) {
       beta <- numeric(p)
       beta[1:s] <- beta_val
       list(beta = beta)
     }
-    ```
-We can append these ground truth inferential targets to `parameter_grid` using the helper function `add_ground_truth()`:
-    ```{r}
     parameter_grid <- parameter_grid |> add_ground_truth(get_ground_truth)
-    ```
-Let's take a look at the resulting parameter grid:
-    ```{r}
     parameter_grid
     ```
-We see the four columns with problem parameters and the fifth with the ground truth coefficient vectors.
 
-- `fixed_parameters`. Here we put only the number of data realizations `B` and the seed to set for the simulation. 
+- `fixed_parameters`. The number of replicates `B` and the seed:
     ```{r}
     fixed_parameters <- list(
-      B = 20,                      # number of data realizations
-      seed = 4                    # seed to set prior to generating data and running methods
-    )
-    ```
-    
-- `generate_data_function`. We define the data-generation function as follows:
-    ```{r}
-    # define data-generating model based on the Gaussian linear model
-    generate_data_f <- function(n, p, ground_truth){
-      X <- matrix(rnorm(n*p), n, p, dimnames = list(NULL, paste0("X", 1:p)))
-      y <- X %*% ground_truth$beta + rnorm(n)
-      data <- list(X = X, y = y)
-      data
-    }
-    ```
-Note that we extract the coefficient vector `beta` from the `ground_truth` object. Additionally, we need to call `simulatr_function()` to add a few pieces of information that `simulatr` needs. In particular, we have to give it the argument names of the data-generating function (typically obtained using `formalArgs(generate_data_f)`, as below). We also have to let `simulatr` know whether the data-generating function creates just one realization of the data (`loop = TRUE`) or all `B` at the same time (`loop = FALSE`).
-    ```{r}
-    # need to call simulatr_function() to give simulatr a few more pieces of info
-    generate_data_function <- simulatr_function(
-      f = generate_data_f,                        
-      arg_names = formalArgs(generate_data_f),    
-      loop = TRUE
+      B = 20,
+      seed = 4
     )
     ```
 
-- `run_method_functions`. Let's define functions for OLS and lasso:
+- `models`. The data-generating function uses problem parameters and `ground_truth`:
     ```{r}
-    # ordinary least squares
-    ols_f <- function(data){
-      X <- data$X
-      y <- data$y
-      lm_fit <- lm(y ~ X - 1)
-      beta_hat <- coef(lm_fit)
-      results <- list(beta = unname(beta_hat))
-      results
+    generate_data_f <- function(n, p, ground_truth) {
+      X <- matrix(rnorm(n * p), n, p, dimnames = list(NULL, paste0("X", 1:p)))
+      y <- X %*% ground_truth$beta + rnorm(n)
+      list(X = X, y = y)
     }
-    
-    # lasso
-    lasso_f <- function(data){
-      X <- data$X
-      y <- data$y
+    lm_model <- simulatr_model(
+      name = "lm_model",
+      generate = generate_data_f
+    )
+    ```
+
+- `methods`. OLS and lasso. The first argument of each `run` function is the data realization; additional arguments would resolve to `parameter_grid`/`fixed_parameters` entries.
+    ```{r}
+    ols_f <- function(data) {
+      X <- data$X; y <- data$y
+      lm_fit <- lm(y ~ X - 1)
+      list(beta = unname(coef(lm_fit)))
+    }
+    lasso_f <- function(data) {
+      X <- data$X; y <- data$y
       glmnet_fit <- glmnet::cv.glmnet(x = X, y = y, nfolds = 5, intercept = FALSE)
       beta_hat <- glmnet::coef.glmnet(glmnet_fit, s = "lambda.1se")
-      results <- list(beta = beta_hat[-1])
-      results
+      list(beta = beta_hat[-1])
     }
+    ols   <- simulatr_method(name = "ols",   run = ols_f)
+    lasso <- simulatr_method(name = "lasso", run = lasso_f)
     ```
-    Again, we need to call `simulatr_function()` to add a few pieces of information that `simulatr` needs. This time, we need to give it all arguments to the method functions *except the first* (the data itself), which usually will be empty. We also have to let `simulatr` know whether the method functions input just one realization of the data (`loop = TRUE`) or all `B` at the same time (`loop = FALSE`).
-    ```{r}
-    # create simulatr functions
-    ols_spec_f <- simulatr_function(f = ols_f, arg_names = character(0), loop = TRUE)
-    lasso_spec_f <- simulatr_function(f = lasso_f, arg_names = character(0), loop = TRUE)
-    ```
-    Finally, we collate the above method functions into a named list. It is crucial that the list be named. 
-    ```{r}
-    run_method_functions <- list(ols = ols_spec_f, lasso = lasso_spec_f)
-    ```
-  
-- `evaluation_functions`. Let's evaluate the estimate of `beta` using the RMSE. To accomplish this, we define the following evaluation function:
-    ```{r}
-    rmse <- function(output, ground_truth) {
-      sqrt(sum((output$beta - ground_truth$beta)^2))
-    }
-    evaluation_functions <- list(rmse = rmse)
-    ```
-    
-# 2. Create a `simulatr` specifier object
 
-This is the easiest step; just pass all four of the above components to the function `simulatr_specifier()`:
+- `metrics`. Evaluate `beta` via RMSE:
+    ```{r}
+    rmse <- simulatr_metric(
+      name = "rmse",
+      score = function(output, ground_truth) {
+        sqrt(sum((output$beta - ground_truth$beta) ^ 2))
+      }
+    )
+    ```
+
+# 2. Create the `simulatr_study`
+
 ```{r}
-simulatr_spec <- simulatr_specifier(
-  parameter_grid,
-  fixed_parameters,
-  generate_data_function, 
-  run_method_functions,
-  evaluation_functions
+study <- simulatr_study(
+  parameter_grid = parameter_grid,
+  fixed_parameters = fixed_parameters,
+  models = list(lm_model = lm_model),
+  methods = list(ols = ols, lasso = lasso),
+  metrics = list(rmse = rmse)
 )
 ```
 
-# 3. Check and, if necessary, update the `simulatr` specifier object
-```{r}
-check_results <- check_simulatr_specifier_object(simulatr_spec, B_in = 2)
-```
-This message tells us that the simulation did not encounter any errors for the first two data realizations. We are free to move on to running the full simulation.
-   
-# 4. Run the simulation on your laptop
+# 3. Sanity-check the study
 
-Since this example simulation is small, we can run it on your laptop in RStudio:
 ```{r}
-sim_results <- check_simulatr_specifier_object(simulatr_spec)
+check_results <- simulatr_check(study, B = 2)
 ```
 
-# 5. Summarize and/or visualize the results
+If anything is misspecified, `simulatr_check()` raises a descriptive error that identifies the problem.
 
-Let's take a look at the results:
+# 4. Run the full simulation on your laptop
+
 ```{r}
-sim_results$metrics
+results  <- simulatr_run(study)
+evals    <- simulatr_evaluate(study, results)
+summary  <- simulatr_evals_summarise(evals)
 ```
-We have both the mean and Monte Carlo standard error for the metric (RMSE) for each method in each problem setting. We can plot these as follows:
 
-```{r, fig.align='center', fig.width=6, fig.height = 4}
-sim_results$metrics |>
-  ggplot(aes(x = n, 
-             y = mean, 
-             ymin = mean - 2*se, 
-             ymax = mean + 2*se, 
+# 5. Summarize and visualise
+
+```{r}
+summary
+```
+
+```{r, fig.align='center', fig.width=6, fig.height=4}
+summary |>
+  dplyr::inner_join(
+    parameter_grid |> dplyr::mutate(grid_id = dplyr::row_number()),
+    by = "grid_id"
+  ) |>
+  ggplot(aes(x = n, y = mean,
+             ymin = mean - 2 * se, ymax = mean + 2 * se,
              color = method)) +
-  geom_point() + 
-  geom_line() + 
+  geom_point() +
+  geom_line() +
   geom_errorbar(width = 1) +
-  labs(x = "Sample size",
-       y = "RMSE") + 
+  labs(x = "Sample size", y = "RMSE") +
   theme(legend.position = "bottom")
 ```
 
-It looks like lasso performs better for small sample sizes but OLS performs better for large sample sizes.
+Lasso outperforms OLS for small sample sizes; OLS catches up as `n` grows.
