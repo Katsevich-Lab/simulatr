@@ -1,0 +1,137 @@
+---
+title: "Getting started with simulatr"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with simulatr}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+This is a ten-minute laptop walk-through. We compare ordinary least
+squares against the lasso for estimating sparse regression
+coefficients, varying the sample size. **No HPC access required** —
+everything runs in-process via `simulatr_check()`.
+
+```{r setup, message = FALSE}
+library(simulatr)
+```
+
+# 1. Build the parameter grid
+
+Each row of `parameter_grid` is one problem setting. Attach the ground
+truth (the true coefficient vector) to the grid via `add_ground_truth()`.
+
+```{r}
+parameter_grid <- data.frame(
+  n        = c(25, 50, 75, 100),
+  p        = 15,
+  s        = 5,
+  beta_val = 3
+)
+
+get_ground_truth <- function(p, s, beta_val) {
+  beta <- numeric(p)
+  beta[seq_len(s)] <- beta_val
+  list(beta = beta)
+}
+
+parameter_grid <- add_ground_truth(parameter_grid, get_ground_truth)
+```
+
+# 2. Define the components
+
+Three constructors produce typed S4 objects whose argument names are
+validated against the grid at study-build time.
+
+```{r}
+lm_model <- simulatr_model(
+  name = "lm_model",
+  generate = function(n, p, ground_truth) {
+    X <- matrix(rnorm(n * p), n, p)
+    y <- as.numeric(X %*% ground_truth$beta + rnorm(n))
+    list(X = X, y = y)
+  }
+)
+
+ols <- simulatr_method(
+  name = "ols",
+  run = function(data) {
+    fit <- lm.fit(data$X, data$y)
+    list(beta = unname(fit$coefficients))
+  }
+)
+
+lasso <- simulatr_method(
+  name = "lasso",
+  run = function(data) {
+    fit <- glmnet::cv.glmnet(data$X, data$y, nfolds = 5, intercept = FALSE)
+    beta_hat <- as.numeric(glmnet::coef.glmnet(fit, s = "lambda.1se"))
+    list(beta = beta_hat[-1L])
+  }
+)
+
+rmse <- simulatr_metric(
+  name = "rmse",
+  score = function(output, ground_truth) {
+    sqrt(mean((output$beta - ground_truth$beta) ^ 2))
+  }
+)
+```
+
+# 3. Build the study
+
+```{r}
+study <- simulatr_study(
+  parameter_grid   = parameter_grid,
+  fixed_parameters = list(B = 20, seed = 4),
+  models  = list(lm_model = lm_model),
+  methods = list(ols = ols, lasso = lasso),
+  metrics = list(rmse = rmse)
+)
+```
+
+If a method or model named an unresolvable formal, the construction
+above would have raised a precise error pointing at the offending
+component.
+
+# 4. Run, evaluate, summarise
+
+`simulatr_check()` is the laptop one-liner: it runs the full
+generate→run→evaluate pipeline at small `B` and returns a list of three
+tibbles.
+
+```{r}
+out <- simulatr_check(study, B = 2)
+out$summary
+```
+
+For the full simulation on a single laptop:
+
+```{r, eval = FALSE}
+results <- simulatr_run(study)
+evals   <- simulatr_evaluate(study, results)
+summary <- simulatr_evals_summarise(evals)
+```
+
+For a cluster, save the study with `saveRDS()` and hand it to the
+[Nextflow pipeline](https://github.com/Katsevich-Lab/simulatr-pipeline).
+See `vignette("running-on-a-cluster")`.
+
+# 5. Capture session info for reproducibility
+
+Embed `simulatr_session_info()` into any artifact you save, so a future
+reviewer can verify the package and pipeline contract version that
+produced it.
+
+```{r}
+info <- simulatr_session_info()
+info$contract_version
+info$contract_hash
+```

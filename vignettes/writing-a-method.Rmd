@@ -1,0 +1,133 @@
+---
+title: "Writing a method"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Writing a method}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+This vignette covers the contracts a method must satisfy:
+
+* its **first argument** is the data realization;
+* its **remaining arguments** must be drawn from
+  `parameter_grid ∪ fixed_parameters` (and `B` if `batched = TRUE`);
+* it should be **deterministic given a seed** — `simulatr` controls
+  RNG state per replicate; the method should not call `set.seed()`.
+
+```{r setup, message = FALSE}
+library(simulatr)
+```
+
+# A non-batched method (the common case)
+
+The data realization is whatever the model's `generate` function
+returned. Method-side parameters resolve from the grid by name.
+
+```{r}
+ridge <- simulatr_method(
+  name = "ridge",
+  run = function(data, lambda) {
+    XtX <- crossprod(data$X)
+    p   <- ncol(XtX)
+    beta_hat <- solve(XtX + lambda * diag(p), crossprod(data$X, data$y))
+    list(beta = as.numeric(beta_hat))
+  }
+)
+```
+
+`lambda` here must be a column of `parameter_grid` or an entry of
+`fixed_parameters`; otherwise the call to `simulatr_study()` errors
+with the offending name.
+
+# A batched method (`batched = TRUE`)
+
+For methods with non-trivial setup — fitting one model per `(n, p)`
+pair across many bootstrap replicates, for example — `batched = TRUE`
+lets `simulatr` hand the method a length-`B` *list* of data
+realizations at once. The `run` function must return a `B`-row tibble
+with columns `run_id` (int) and `output` (list).
+
+```{r}
+boot_se <- simulatr_method(
+  name = "boot_se",
+  run = function(draws, B) {
+    out <- vector("list", B)
+    for (b in seq_len(B)) {
+      fit <- lm.fit(draws[[b]]$X, draws[[b]]$y)
+      out[[b]] <- list(beta = unname(fit$coefficients))
+    }
+    tibble::tibble(run_id = seq_len(B), output = out)
+  },
+  batched = TRUE
+)
+```
+
+Use `batched = TRUE` when the per-replicate setup cost dominates the
+per-replicate work; otherwise, leave it `FALSE` (the default) and let
+`simulatr_run()` interleave generation and method application
+one replicate at a time so peak memory scales with one draw, not `B`.
+
+# Randomized methods and the RNG protocol
+
+`simulatr` uses one seed per replicate:
+
+```
+seed_b = study@fixed_parameters$seed + run_id
+```
+
+Generation and method application within a replicate share that seed.
+A randomized method (lasso with random folds, a bootstrap, MCMC
+initialization) is fed a fresh state for every `run_id`, so two
+replicates with the same `run_id` reproduce bit-for-bit and two
+replicates with different `run_id` give independent draws. The method
+itself should not call `set.seed()` — that breaks the protocol and the
+results stop being reproducible.
+
+The same protocol means **reordering rows of `parameter_grid` does not
+perturb seeds**. Adding or deleting a grid row only affects that row's
+draws.
+
+# Declaring required packages
+
+If your method needs a package that isn't a base/`Imports` dependency,
+declare it on the method:
+
+```{r}
+glmnet_method <- simulatr_method(
+  name = "glmnet",
+  run = function(data) {
+    fit <- glmnet::cv.glmnet(data$X, data$y, intercept = FALSE)
+    list(beta = as.numeric(glmnet::coef.glmnet(fit, s = "lambda.1se"))[-1L])
+  },
+  packages = "glmnet"
+)
+```
+
+The pipeline uses `packages` to install dependencies into worker
+containers; on the laptop, `simulatr_run()` only verifies they are
+loadable.
+
+# Errors are captured, not fatal
+
+A method that throws an error on a single replicate does not abort the
+study. The error is captured per-replicate and surfaced in the
+`results` tibble's `output` list-column as a `simulatr_error` object;
+metrics on those replicates return `NA` and the summary's `n` decreases
+accordingly. A benign warning is also captured (via
+`withCallingHandlers`) — it does not erase the row's results.
+
+# Settings vs. parameters
+
+Use a method's `settings` slot for things that are not part of the
+sweep — a default lambda grid, a precomputed kernel matrix. Use
+`parameter_grid` columns for anything you sweep over. The construction
+contract checks formals against the grid; settings are private to the
+method.

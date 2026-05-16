@@ -1,0 +1,94 @@
+---
+title: "Reproducibility and seeding"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Reproducibility and seeding}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+A simulation result is only useful if it can be reproduced. `simulatr`
+takes four steps to make that the default, not a manual project.
+
+```{r setup, message = FALSE}
+library(simulatr)
+```
+
+# 1. Per-replicate seeding
+
+Within a study, each replicate's RNG seed is
+
+```
+seed_b = study@fixed_parameters$seed + run_id
+```
+
+This means:
+
+* **Same seed → same draws.** Re-running a study from the same
+  `seed` yields identical outputs.
+* **Different `run_id` → independent draws.** Replicates within a
+  study are not correlated by accident.
+* **Reordering `parameter_grid` is safe.** Seeds are keyed on
+  `run_id`, not row position, so dropping a grid row does not perturb
+  the others.
+
+The package enforces this with a property test in
+`tests/testthat/test-rng-protocol.R`. A method should never call
+`set.seed()` — `simulatr` controls RNG state on the method's behalf.
+
+# 2. Capture `simulatr_session_info()` with every artifact
+
+```{r}
+info <- simulatr_session_info()
+str(info, max.level = 1)
+```
+
+`simulatr_session_info()` returns the `utils::sessionInfo()` plus the
+contract version (`contract_version()`) and the SHA-256 of the
+installed `inst/extdata/contract.json`. Embed it into any artifact you
+save:
+
+```{r, eval = FALSE}
+results <- simulatr_run(study)
+saveRDS(
+  list(results = results, session_info = simulatr_session_info()),
+  "study_results_2026-05-16.rds"
+)
+```
+
+A reviewer reading that artifact can compare its `contract_hash`
+against their installed `simulatr` and immediately know whether they
+are running against the same on-disk schema.
+
+# 3. Pin dependencies with `renv`
+
+The repo ships with an `renv.lock`. After cloning:
+
+```{r, eval = FALSE}
+renv::restore()
+```
+
+restores the exact versions of `dplyr`, `purrr`, `bench`, `glmnet`,
+and friends that the package's CI matrix tests against.
+
+# 4. Use the container image
+
+For full bit-for-bit reproducibility — including base R, BLAS, and
+system libraries — use the published container:
+
+```
+docker pull ghcr.io/katsevich-lab/simulatr:1.0.0
+docker run --rm -it -v $(pwd):/work ghcr.io/katsevich-lab/simulatr:1.0.0 \
+    R --quiet -e "simulatr::simulatr_session_info()"
+```
+
+The pipeline's `conf/docker.config` references the same image, so a
+study run on Slurm and a study run from your laptop produce
+byte-identical results when `seed`, `B`, and `parameter_grid` agree.

@@ -1,0 +1,112 @@
+---
+title: "Running on a cluster"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Running on a cluster}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+Once a study runs cleanly on your laptop via
+`simulatr_check(study, B = 2)`, the next step is to scale it through
+[`simulatr-pipeline`](https://github.com/Katsevich-Lab/simulatr-pipeline) —
+a Nextflow workflow that benchmarks per-grid-row memory and time, shards
+work across the cluster, retries on out-of-memory, and writes a
+`memory.parquet` collected from the kernel's view of resident set size.
+
+# Prerequisites
+
+* [Nextflow](https://www.nextflow.io/) ≥ 24.04 in your `$PATH`.
+* The `simulatr-pipeline` repo cloned locally (or installed via
+  `nf-core download`).
+* A Slurm/LSF/SGE cluster, or Docker for running locally.
+
+The pipeline reads `inst/extdata/contract.json` from the installed
+`simulatr` package and asserts at workflow start that its
+`schema_version` is the one it was built against. If the assertion
+fails, upgrade either the package or the pipeline so they match.
+
+# Save the study
+
+```{r, eval = FALSE}
+saveRDS(study, "study.rds")
+```
+
+# Configure resource limits
+
+Edit `nextflow.config` (or pass on the command line) to set the
+per-grid-row resource budget. The benchmarking phase uses this to
+decide how many processors to fan out per `(method, grid_row)`.
+
+```
+params {
+    simulatr_specifier_fp = "study.rds"
+    max_gb     = 16          // peak RAM you'll allow per task
+    max_hours  = 4           // wall-clock you'll allow per task
+    benchmark_memory      = 1
+    benchmark_memory_base = 4
+    array_size = 200         // collapse small tasks into Slurm array jobs
+}
+```
+
+# Run it
+
+On Slurm:
+
+```
+nextflow run Katsevich-Lab/simulatr-pipeline -profile slurm
+```
+
+On a laptop with Docker:
+
+```
+nextflow run Katsevich-Lab/simulatr-pipeline -profile docker,test
+```
+
+On a fresh machine, the pipeline will pull
+`ghcr.io/katsevich-lab/simulatr:<version>` and use it as the worker
+image, so you don't need an R install on each compute node.
+
+# Outputs
+
+When the workflow finishes, the result directory contains:
+
+```
+results/
+├── simulatr_result.rds      # combined results + evals + summary
+├── memory.parquet           # per-task memory (Layer-1 R-heap +
+│                            # Layer-2 sacct/RSS)
+├── errors.parquet           # one row per failed task
+└── benchmarking_results.rds # Layer-1 numbers per (method, grid_row)
+```
+
+Read `memory.parquet` to find which `(method, grid_row)` is the memory
+hog — see `vignette("reading-your-memory-profile")`.
+
+# Slurm array jobs
+
+The pipeline submits `run_simulation_chunk` and `run_benchmark` as
+Slurm array jobs (set `params.array_size` to control batch width).
+Instead of one Slurm job per `(method, grid_row, chunk)` — which can
+mean thousands of submissions and hours of scheduler overhead — you
+get one array submission per process, one task per array element.
+
+# Errors are structured
+
+A failed task writes `error.json` to the work directory with
+`{phase, grid_id, chunk_id, run_id, type, message, traceback}`. The
+`COLLECT` subworkflow concatenates these into `errors.parquet`. No
+more `grep`-ing through `.command.err` files.
+
+# Resuming
+
+Nextflow's `-resume` flag works as expected. Each task writes a
+content-addressed result file; rerunning skips tasks whose inputs are
+unchanged.
