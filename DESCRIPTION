@@ -16,7 +16,7 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.3
 Imports: 
     methods,
     magrittr,
@@ -27,8 +27,7 @@ Imports:
     rlang,
     R.utils
 Suggests:
-    future,
-    future.apply,
+    bench,
     cowplot,
     ggplot2,
     knitr,
