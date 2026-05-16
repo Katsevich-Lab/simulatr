@@ -10,3 +10,8 @@
 ^example_code
 ^\.github$
 ^CONTRIBUTING\.md$
+^paper\.md$
+^paper\.bib$
+^Dockerfile$
+^\.dockerignore$
+^paper-preview\..*$
